@@ -2,6 +2,7 @@
 import streamlit as st
 from PIL import Image
 import html
+import math
 
 st.set_page_config(
     page_title="Flowing Pixels",
@@ -21,79 +22,150 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file).convert("RGB")
+    try:
+        image = Image.open(uploaded_file).convert("RGB")
 
-    st.subheader("Character Art Settings")
+        st.subheader("Character Art Settings")
 
-    col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-    with col1:
-        width = st.slider(
-            "Character density",
-            min_value=40,
-            max_value=160,
-            value=90,
-            step=10,
+        with col1:
+            density = st.slider(
+                "Character density",
+                min_value=60,
+                max_value=240,
+                value=140,
+                step=10,
+                help="Higher values create finer details.",
+            )
+
+        with col2:
+            color_mode = st.selectbox(
+                "Character color",
+                ["Monochrome", "Original colors"],
+            )
+
+        # Preserve the original image aspect ratio.
+        image_ratio = image.width / image.height
+
+        # Density controls the number of character columns.
+        grid_width = density
+        grid_height = max(
+            1, round(grid_width / image_ratio * 0.5)
         )
 
-    with col2:
-        color_mode = st.selectbox(
-            "Character color",
-            ["Monochrome", "Original colors"],
+        # Resize using a high-quality resampling filter.
+        small_image = image.resize(
+            (grid_width, grid_height),
+            Image.Resampling.LANCZOS,
         )
 
-    # Resize the image while preserving its aspect ratio.
-    aspect_ratio = image.height / image.width
-    height = max(1, int(width * aspect_ratio * 0.5))
+        pixels = list(small_image.getdata())
 
-    small_image = image.resize((width, height))
-    pixels = list(small_image.getdata())
+        # Darker pixels use denser characters.
+        characters = "@%#*+=-:. "
 
-    characters = "@%#*+=-:. "
-    output = []
+        text_rows = []
+        html_rows = []
 
-    for y in range(height):
-        row = []
+        for y in range(grid_height):
+            text_row = []
+            html_row = []
 
-        for x in range(width):
-            r, g, b = pixels[y * width + x]
-            brightness = (r * 0.299 + g * 0.587 + b * 0.114)
+            for x in range(grid_width):
+                r, g, b = pixels[y * grid_width + x]
 
-            index = int((brightness / 255) * (len(characters) - 1))
-            char = characters[index]
-
-            if color_mode == "Original colors":
-                style = f"color:rgb({r},{g},{b})"
-                row.append(
-                    f'<span style="{style}">{html.escape(char)}</span>'
+                brightness = (
+                    0.299 * r + 0.587 * g + 0.114 * b
                 )
-            else:
-                row.append(html.escape(char))
 
-        output.append("".join(row))
+                index = round(
+                    brightness / 255 * (len(characters) - 1)
+                )
+                char = characters[index]
 
-    art = "\n".join(output)
+                text_row.append(char)
 
-    st.subheader("Your Character Art")
+                if color_mode == "Original colors":
+                    html_rows.append(
+                        f'<span style="color:rgb({r},{g},{b})">'
+                        f"{html.escape(char)}</span>"
+                    )
+                else:
+                    html_rows.append(html.escape(char))
 
-    st.code(art, language=None)
+            text_rows.append("".join(text_row))
 
-    if color_mode == "Original colors":
-        colored_art = (
-            '<div style="font-family:monospace;'
-            'font-size:8px;line-height:1;'
-            'white-space:pre;overflow-x:auto;">'
-            + "\n".join(output)
-            + "</div>"
+        art = "\n".join(text_rows)
+
+        st.subheader("Your Character Art")
+
+        # Scale the preview to fit the page while preserving
+        # the original image proportions.
+        preview_width = min(1100, max(320, grid_width * 6))
+        font_size = preview_width / grid_width * 1.65
+        line_height = font_size * 1.15
+
+        preview_height = max(
+            120,
+            min(1000, int(grid_height * line_height + 30)),
         )
-        st.markdown(colored_art, unsafe_allow_html=True)
 
-    st.download_button(
-        "Download character art",
-        data=art,
-        file_name="flowing_pixels.txt",
-        mime="text/plain",
-    )
+        # Build a centered, proportion-preserving preview.
+        art_html = "\n".join(
+            "".join(
+                html_rows[y * grid_width:(y + 1) * grid_width]
+            )
+            for y in range(grid_height)
+        )
+
+        preview_html = f"""
+        <div style="
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            overflow-x: auto;
+        ">
+          <div style="
+              width: {preview_width}px;
+              max-width: 100%;
+              margin: 0 auto;
+              background: #ffffff;
+              padding: 12px;
+              box-sizing: border-box;
+              overflow: hidden;
+          ">
+            <div style="
+                font-family: monospace;
+                font-size: {font_size}px;
+                line-height: {line_height}px;
+                letter-spacing: 0;
+                white-space: pre;
+                text-align: left;
+            ">{art_html}</div>
+          </div>
+        </div>
+        """
+
+        st.components.v1.html(
+            preview_html,
+            height=preview_height,
+            scrolling=True,
+        )
+
+        st.download_button(
+            "Download character art",
+            data=art,
+            file_name="flowing_pixels.txt",
+            mime="text/plain",
+        )
+
+    except Exception as error:
+        st.error(
+            "Sorry, this image could not be processed. "
+            "Please try another image."
+        )
+        st.caption(f"Error details: {error}")
 
 else:
     st.info("Upload an image to create your first character art.")
