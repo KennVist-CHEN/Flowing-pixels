@@ -2,68 +2,80 @@
 import streamlit as st
 from PIL import Image
 import html
-import math
 
 st.set_page_config(
     page_title="Flowing Pixels",
     page_icon="〰️",
-    layout="wide",
+    layout="wide"
 )
 
 st.title("〰️ Flowing Pixels")
-st.write(
-    "Transform an image into character art "
-    "and explore its visual patterns."
-)
+st.write("Transform your image into customizable text art.")
 
 uploaded_file = st.file_uploader(
     "Upload an image",
-    type=["png", "jpg", "jpeg", "webp"],
+    type=["png", "jpg", "jpeg", "webp"]
+)
+
+st.subheader("Customize your pixels")
+
+pixel_content = st.text_input(
+    "Pixel content",
+    value="@%#*+=-:.",
+    max_chars=100,
+    help="Enter letters, words, punctuation, or emoticons."
+)
+
+st.caption(
+    "Your input will repeat across the image. "
+    "Spaces are removed so the pattern stays continuous."
+)
+
+density = st.slider(
+    "Character density",
+    min_value=60,
+    max_value=240,
+    value=140,
+    step=10
+)
+
+color_mode = st.selectbox(
+    "Color mode",
+    ["Monochrome", "Original colors"]
 )
 
 if uploaded_file is not None:
     try:
         image = Image.open(uploaded_file).convert("RGB")
 
-        st.subheader("Character Art Settings")
+        # Remove whitespace so the pattern tiles continuously.
+        content = "".join(pixel_content.split())
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-            density = st.slider(
-                "Character density",
-                min_value=60,
-                max_value=240,
-                value=140,
-                step=10,
-                help="Higher values create finer details.",
+        if not content:
+            st.warning(
+                "Please enter at least one character "
+                "for your pixel content."
             )
+            st.stop()
 
-        with col2:
-            color_mode = st.selectbox(
-                "Character color",
-                ["Monochrome", "Original colors"],
-            )
-
-        # Preserve the original image aspect ratio.
+        # Preserve the original image proportions.
         image_ratio = image.width / image.height
-
-        # Density controls the number of character columns.
         grid_width = density
         grid_height = max(
-            1, round(grid_width / image_ratio * 0.5)
+            1,
+            round(grid_width / image_ratio * 0.5)
         )
 
-        # Resize using a high-quality resampling filter.
+        # Resize the source image to the character grid.
         small_image = image.resize(
             (grid_width, grid_height),
-            Image.Resampling.LANCZOS,
+            Image.Resampling.LANCZOS
         )
 
         pixels = list(small_image.getdata())
 
-        # Darker pixels use denser characters.
-        characters = "@%#*+=-:. "
+        # Split the custom content into individual characters.
+        symbols = list(content)
 
         text_rows = []
         html_rows = []
@@ -75,97 +87,110 @@ if uploaded_file is not None:
             for x in range(grid_width):
                 r, g, b = pixels[y * grid_width + x]
 
+                # Calculate perceived brightness.
                 brightness = (
-                    0.299 * r + 0.587 * g + 0.114 * b
+                    0.299 * r
+                    + 0.587 * g
+                    + 0.114 * b
                 )
 
-                index = round(
-                    brightness / 255 * (len(characters) - 1)
-                )
-                char = characters[index]
+                # Cycle through the custom content.
+                symbol_index = (
+                    y * grid_width + x
+                ) % len(symbols)
+
+                char = symbols[symbol_index]
+                safe_char = html.escape(char)
 
                 text_row.append(char)
 
                 if color_mode == "Original colors":
-                    html_rows.append(
-                        f'<span style="color:rgb({r},{g},{b})">'
-                        f"{html.escape(char)}</span>"
+                    # Preserve the source image's pixel colors.
+                    style = (
+                        f"color: rgb({r},{g},{b});"
                     )
                 else:
-                    html_rows.append(html.escape(char))
+                    # Dark image areas use opaque black text;
+                    # bright areas use lighter, more transparent text.
+                    opacity = 1.0 - brightness / 255.0
+                    opacity = max(0.08, min(1.0, opacity))
+
+                    style = (
+                        f"color: rgba(0,0,0,{opacity:.2f});"
+                    )
+
+                html_row.append(
+                    f'<span style="{style}">'
+                    f'{safe_char}</span>'
+                )
 
             text_rows.append("".join(text_row))
+            html_rows.append("".join(html_row))
 
-        art = "\n".join(text_rows)
+        # Preview sizing.
+        preview_width = min(
+            1100,
+            max(320, grid_width * 6)
+        )
 
-        st.subheader("Your Character Art")
-
-        # Scale the preview to fit the page while preserving
-        # the original image proportions.
-        preview_width = min(1100, max(320, grid_width * 6))
         font_size = preview_width / grid_width * 1.65
         line_height = font_size * 1.15
 
         preview_height = max(
             120,
-            min(1000, int(grid_height * line_height + 30)),
+            min(
+                1000,
+                int(grid_height * line_height + 40)
+            )
         )
 
-        # Build a centered, proportion-preserving preview.
-        art_html = "\n".join(
-            "".join(
-                html_rows[y * grid_width:(y + 1) * grid_width]
-            )
-            for y in range(grid_height)
-        )
+        formatted_rows = "<br>".join(html_rows)
 
         preview_html = f"""
         <div style="
+            background: #ffffff;
             width: 100%;
-            display: flex;
-            justify-content: center;
-            overflow-x: auto;
+            box-sizing: border-box;
+            padding: 15px;
+            overflow: auto;
+            border-radius: 8px;
         ">
-          <div style="
-              width: {preview_width}px;
-              max-width: 100%;
-              margin: 0 auto;
-              background: #ffffff;
-              padding: 12px;
-              box-sizing: border-box;
-              overflow: hidden;
-          ">
             <div style="
-                font-family: monospace;
+                font-family: 'Courier New', monospace;
                 font-size: {font_size}px;
                 line-height: {line_height}px;
+                font-weight: bold;
                 letter-spacing: 0;
                 white-space: pre;
-                text-align: left;
-            ">{art_html}</div>
-          </div>
+            ">{formatted_rows}</div>
         </div>
         """
+
+        st.subheader("Character Art")
 
         st.components.v1.html(
             preview_html,
             height=preview_height,
-            scrolling=True,
+            scrolling=True
         )
 
+        # Download plain-text art.
         st.download_button(
-            "Download character art",
-            data=art,
+            label="Download character art (.txt)",
+            data="\n".join(text_rows),
             file_name="flowing_pixels.txt",
-            mime="text/plain",
+            mime="text/plain"
         )
 
     except Exception as error:
         st.error(
-            "Sorry, this image could not be processed. "
-            "Please try another image."
+            "Something went wrong while processing the image."
         )
-        st.caption(f"Error details: {error}")
+        st.caption(f"Details: {error}")
 
 else:
-    st.info("Upload an image to create your first character art.")
+    st.info(
+        "Upload an image to get started. "
+        "You can customize the pixel content, density, "
+        "and color mode."
+    )
