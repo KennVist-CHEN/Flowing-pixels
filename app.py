@@ -1,545 +1,607 @@
 
-import streamlit as st
-from PIL import Image
 import base64
 import io
 import json
+
+import streamlit as st
+import streamlit.components.v1 as components
+from PIL import Image
+
+
+# --------------------------------------------------
+# Page configuration
+# --------------------------------------------------
 
 st.set_page_config(
     page_title="Flowing Pixels",
     page_icon="〰️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
+
 # --------------------------------------------------
-# Compact page styling
+# CSS
 # --------------------------------------------------
 
 st.markdown(
     """
     <style>
     .block-container {
-        padding-top: 1.2rem;
-        padding-bottom: 1rem;
         max-width: 1600px;
-    }
-
-    h1 {
-        margin-bottom: 0.2rem;
-    }
-
-    h2, h3 {
-        margin-top: 0.5rem !important;
-        margin-bottom: 0.35rem !important;
+        padding-top: 1.4rem;
+        padding-bottom: 1rem;
     }
 
     div[data-testid="stVerticalBlock"] {
-        gap: 0.55rem;
+        gap: 0.65rem;
     }
 
-    div[data-testid="stSlider"] {
-        padding-top: 0;
-        padding-bottom: 0;
+    div[data-testid="stHorizontalBlock"] {
+        gap: 1.5rem;
     }
 
-    div[data-testid="stSelectbox"],
-    div[data-testid="stTextInput"],
-    div[data-testid="stFileUploader"] {
-        margin-bottom: 0;
+    .app-subtitle {
+        color: #777;
+        font-size: 0.95rem;
+        margin-top: -0.5rem;
+        margin-bottom: 1.2rem;
     }
 
-    div[data-testid="stColorPicker"] {
-        padding-bottom: 0;
+    .preview-heading {
+        font-size: 1.15rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+
+    .preview-description {
+        color: #777;
+        font-size: 0.85rem;
+        margin-bottom: 0.6rem;
     }
 
     div[data-testid="stDownloadButton"] button {
         width: 100%;
     }
-
-    .section-caption {
-        color: #777;
-        font-size: 0.85rem;
-        margin-top: -0.3rem;
-        margin-bottom: 0.4rem;
-    }
     </style>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
-st.title("〰️ Flowing Pixels")
-st.caption("Transform your image into living text art.")
 
 # --------------------------------------------------
-# 1. Main layout
+# Header
+# --------------------------------------------------
+
+st.title("Flowing Pixels")
+
+st.markdown(
+    '<div class="app-subtitle">'
+    "Transform images into character art and bring them to life."
+    "</div>",
+    unsafe_allow_html=True,
+)
+
+
+# --------------------------------------------------
+# Layout
 # --------------------------------------------------
 
 control_col, preview_col = st.columns(
     [0.85, 2.15],
-    gap="medium"
+    gap="medium",
 )
 
+
 # --------------------------------------------------
-# 2. Controls
+# Controls
 # --------------------------------------------------
 
 with control_col:
-    st.subheader("Image")
+    st.subheader("Settings")
 
     uploaded_file = st.file_uploader(
         "Upload an image",
         type=["png", "jpg", "jpeg", "webp"],
-        label_visibility="collapsed"
     )
 
-    st.divider()
-
-    st.subheader("Character settings")
-
     pixel_content = st.text_input(
-        "Pixel content",
-        value="@%#*+=-:.",
-        max_chars=100,
-        help="Enter letters, words, punctuation, or emoticons."
+        "Characters",
+        value="FLOWINGPIXELS",
+        help="Characters are repeated across the image.",
     )
 
     density = st.slider(
-        "Character density",
+        "Density",
         min_value=30,
         max_value=240,
         value=100,
         step=10,
-        help="Higher density preserves more image detail."
+        help="Higher density creates more character cells.",
     )
 
     color_mode = st.selectbox(
         "Color mode",
-        ["Monochrome", "Original colors"]
+        ["Monochrome", "Original colors"],
     )
 
     if color_mode == "Monochrome":
-        with st.expander("Monochrome colors", expanded=True):
-            pixel_color = st.color_picker(
-                "Pixel color",
-                value="#000000"
-            )
-
-            background_color = st.color_picker(
-                "Background color",
-                value="#FFFFFF"
-            )
+        pixel_color = st.color_picker(
+            "Character color",
+            value="#000000",
+        )
     else:
         pixel_color = "#000000"
-        background_color = "#FFFFFF"
+
+    background_color = st.color_picker(
+        "Background color",
+        value="#FFFFFF",
+    )
 
     st.divider()
 
-    st.subheader("〰️ Wave animation")
+    st.subheader("Animation")
 
-    play_animation = st.toggle(
+    # Explicitly default to False.
+    play_animation = st.checkbox(
         "Play animation",
-        value=True
+        value=False,
+        help="Animation is off when the app first opens.",
     )
 
-    with st.expander("Animation settings", expanded=True):
-        wave_speed = st.slider(
-            "Wave speed",
-            min_value=0.5,
-            max_value=3.0,
-            value=1.0,
-            step=0.5
-        )
+    animation_speed = st.slider(
+        "Animation speed",
+        min_value=0.5,
+        max_value=3.0,
+        value=1.0,
+        step=0.5,
+        disabled=not play_animation,
+    )
 
-        wave_amplitude = st.slider(
-            "Wave amplitude",
-            min_value=0,
-            max_value=16,
-            value=5,
-            step=1
-        )
+    animation_amplitude = st.slider(
+        "Wave amplitude",
+        min_value=0,
+        max_value=16,
+        value=5,
+        step=1,
+        disabled=not play_animation,
+    )
+
+    st.caption(
+        "Animation is limited to 30 FPS. "
+        "It pauses when this browser tab is hidden."
+    )
 
 
 # --------------------------------------------------
-# 3. Preview
+# Image processing and preview
 # --------------------------------------------------
 
 with preview_col:
-    st.subheader("Character Art")
+    st.markdown(
+        '<div class="preview-heading">Preview</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="preview-description">'
+        "Your character artwork will appear here."
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     if uploaded_file is None:
-        st.info(
-            "Upload an image from the panel on the left "
-            "to see your character art here."
-        )
+        st.info("Upload an image to get started.")
+
+    elif not pixel_content.strip():
+        st.warning("Please enter at least one character.")
 
     else:
         try:
             image = Image.open(uploaded_file).convert("RGB")
 
-            content = "".join(pixel_content.split())
+            image_width, image_height = image.size
+            image_ratio = image_width / image_height
 
-            if not content:
-                st.warning("Please enter at least one character.")
-            else:
-                image_ratio = image.width / image.height
-                grid_width = density
+            # Number of character columns.
+            grid_width = density
 
-                # Match the grid ratio to the source image.
-                # Character cells are proportioned at 2:3.
-                grid_height = max(
-                    1,
-                    round(grid_width / image_ratio * 2 / 3)
+            # Keep the character grid proportional to the image.
+            # Each character cell is approximately 2:3 (width:height).
+            grid_height = max(
+                1,
+                round(grid_width / image_ratio * 2 / 3),
+            )
+
+            # Resize the source image to match the character grid.
+            small_image = image.resize(
+                (grid_width, grid_height),
+                Image.Resampling.LANCZOS,
+            )
+
+            rgb_pixels = list(small_image.getdata())
+
+            pixel_data = []
+
+            for red, green, blue in rgb_pixels:
+                brightness = (
+                    0.299 * red
+                    + 0.587 * green
+                    + 0.114 * blue
                 )
 
-                small_image = image.resize(
-                    (grid_width, grid_height),
-                    Image.Resampling.LANCZOS
+                pixel_data.append(
+                    {
+                        "r": red,
+                        "g": green,
+                        "b": blue,
+                        "brightness": brightness,
+                    }
                 )
 
-                buffer = io.BytesIO()
-                small_image.save(buffer, format="PNG")
+            # Text export: one character per grid cell.
+            characters = list(pixel_content)
 
-                image_base64 = base64.b64encode(
-                    buffer.getvalue()
-                ).decode("ascii")
+            text_rows = []
 
-                config = {
-                    "imageData": (
-                        "data:image/png;base64,"
-                        + image_base64
-                    ),
-                    "content": content,
-                    "gridWidth": grid_width,
-                    "gridHeight": grid_height,
-                    "colorMode": color_mode,
-                    "pixelColor": pixel_color,
-                    "backgroundColor": background_color,
-                    "playing": play_animation,
-                    "speed": wave_speed,
-                    "amplitude": wave_amplitude,
-                }
+            for y in range(grid_height):
+                row_chars = []
 
-                config_json = json.dumps(config).replace(
-                    "</", "<\\/"
-                )
+                for x in range(grid_width):
+                    index = y * grid_width + x
+                    char = characters[index % len(characters)]
+                    row_chars.append(char)
 
-                # ----------------------------------------
-                # Canvas renderer
-                # ----------------------------------------
+                text_rows.append("".join(row_chars))
 
-                canvas_html = f"""
+            text_art = "\n".join(text_rows)
+
+            # Pass data safely into the browser-side Canvas.
+            config = {
+                "cols": grid_width,
+                "rows": grid_height,
+                "pixels": pixel_data,
+                "content": pixel_content,
+                "colorMode": color_mode,
+                "pixelColor": pixel_color,
+                "backgroundColor": background_color,
+                "playing": play_animation,
+                "speed": animation_speed,
+                "amplitude": animation_amplitude,
+                "imageRatio": image_ratio,
+            }
+
+            config_json = json.dumps(
+                config,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+
+            canvas_html = """
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<style>
-    * {{
-        box-sizing: border-box;
-    }}
 
-    html, body {{
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    html, body {
         margin: 0;
         padding: 0;
         width: 100%;
+        overflow: hidden;
         background: transparent;
-        overflow: hidden;
-    }}
+    }
 
-    #viewport {{
+    #canvas-container {
         width: 100%;
-        padding: 12px;
         overflow: hidden;
-        border-radius: 8px;
-        background: {background_color};
-    }}
+        line-height: 0;
+    }
 
-    #stage {{
-        width: 100%;
-        display: flex;
-        justify-content: center;
-        align-items: flex-start;
-    }}
-
-    #artCanvas {{
+    canvas {
         display: block;
         width: 100%;
-        max-width: 1000px;
         height: auto;
-    }}
+    }
 </style>
 </head>
 
 <body>
-<div id="viewport">
-    <div id="stage">
-        <canvas id="artCanvas"></canvas>
-    </div>
+<div id="canvas-container">
+    <canvas id="artCanvas"></canvas>
 </div>
 
 <script>
-(() => {{
-    const cfg = {config_json};
+(function () {
+    const cfg = __CONFIG_JSON__;
 
     const canvas = document.getElementById("artCanvas");
-    const ctx = canvas.getContext("2d", {{
+    const container = document.getElementById("canvas-container");
+    const ctx = canvas.getContext("2d", {
         alpha: false
-    }});
+    });
 
-    const viewport = document.getElementById("viewport");
-    const source = new Image();
+    const cols = cfg.cols;
+    const rows = cfg.rows;
+    const pixels = cfg.pixels;
 
-    const cols = cfg.gridWidth;
-    const rows = cfg.gridHeight;
+    // Fixed preview width keeps the artwork display size stable
+    // while density changes the number of character cells.
+    const MAX_WIDTH = 1000;
 
-    let pixels = [];
-    let animationFrame = null;
-    let lastTime = 0;
-    let elapsed = 0;
-    let isPlaying = cfg.playing;
+    // 30 FPS = approximately one frame every 33.33 ms.
+    const FRAME_INTERVAL = 1000 / 30;
 
     let cellWidth = 1;
     let cellHeight = 1;
     let fontSize = 1;
 
-    const fontFamily = '"Courier New", monospace';
+    let elapsed = 0;
+    let lastTimestamp = 0;
+    let lastDrawTimestamp = 0;
+    let animationFrame = null;
 
-    function resizeCanvas() {{
+    let isPlaying = cfg.playing;
+    let pageIsVisible = !document.hidden;
+
+    const fontFamily =
+        "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+    function hexToRgba(hex, alpha) {
+        const cleanHex = hex.replace("#", "");
+
+        const r = parseInt(cleanHex.slice(0, 2), 16);
+        const g = parseInt(cleanHex.slice(2, 4), 16);
+        const b = parseInt(cleanHex.slice(4, 6), 16);
+
+        return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
+    }
+
+    function resizeCanvas() {
         const availableWidth = Math.max(
             1,
-            viewport.clientWidth - 24
+            container.clientWidth
         );
 
-        const targetWidth = Math.min(
-            1000,
-            availableWidth
+        const cssWidth = Math.min(
+            availableWidth,
+            MAX_WIDTH
         );
 
-        canvas.width = Math.max(
-            1,
-            Math.round(targetWidth)
+        const cssHeight = cssWidth / cfg.imageRatio;
+
+        const dpr = Math.min(
+            window.devicePixelRatio || 1,
+            2
         );
 
-        cellWidth = canvas.width / cols;
-        cellHeight = cellWidth * 1.5;
+        canvas.style.width = cssWidth + "px";
+        canvas.style.height = cssHeight + "px";
+
+        canvas.width = Math.round(cssWidth * dpr);
+        canvas.height = Math.round(cssHeight * dpr);
+
+        // Draw in CSS-pixel coordinates for consistent sizing.
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        cellWidth = cssWidth / cols;
+        cellHeight = cssHeight / rows;
+
         fontSize = cellWidth * 1.25;
 
-        canvas.height = Math.max(
-            1,
-            Math.round(rows * cellHeight)
-        );
+        drawFrame();
 
-        canvas.style.width = "100%";
-        canvas.style.maxWidth = "1000px";
-        canvas.style.height = "auto";
-
-        if (pixels.length) {{
-            drawFrame();
-        }}
-    }}
-
-    source.onload = () => {{
-        const sourceCanvas = document.createElement("canvas");
-        sourceCanvas.width = cols;
-        sourceCanvas.height = rows;
-
-        const sourceCtx = sourceCanvas.getContext("2d", {{
-            willReadFrequently: true
-        }});
-
-        sourceCtx.drawImage(source, 0, 0, cols, rows);
-
-        const imageData = sourceCtx.getImageData(
-            0, 0, cols, rows
-        ).data;
-
-        pixels = [];
-
-        for (let i = 0; i < cols * rows; i++) {{
-            const r = imageData[i * 4];
-            const g = imageData[i * 4 + 1];
-            const b = imageData[i * 4 + 2];
-
-            const brightness =
-                0.299 * r + 0.587 * g + 0.114 * b;
-
-            pixels.push({{
-                r, g, b, brightness
-            }});
-        }}
-
-        resizeCanvas();
-
-        if (isPlaying) {{
+        // Resizing should not start animation by itself.
+        if (isPlaying && pageIsVisible) {
             startAnimation();
-        }}
-    }};
+        }
+    }
 
-    source.onerror = () => {{
+    function drawFrame() {
+        const cssWidth = parseFloat(canvas.style.width) || 1;
+        const cssHeight = parseFloat(canvas.style.height) || 1;
+
         ctx.fillStyle = cfg.backgroundColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.fillStyle = cfg.pixelColor;
-        ctx.font = "14px sans-serif";
-        ctx.fillText(
-            "Unable to load image preview.",
-            10,
-            25
-        );
-    }};
-
-    source.src = cfg.imageData;
-
-    function drawFrame() {{
-        ctx.fillStyle = cfg.backgroundColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, cssWidth, cssHeight);
 
         ctx.font = "bold " + fontSize + "px " + fontFamily;
         ctx.textBaseline = "top";
 
         const chars = Array.from(cfg.content);
 
-        if (!chars.length || !pixels.length) {{
+        if (chars.length === 0 || pixels.length === 0) {
             return;
-        }}
+        }
 
         const phaseSpeed = cfg.speed * 0.0018;
         const spatialX = 0.045;
         const spatialY = 0.025;
 
-        for (let y = 0; y < rows; y++) {{
-            for (let x = 0; x < cols; x++) {{
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
                 const index = y * cols + x;
                 const p = pixels[index];
                 const char = chars[index % chars.length];
 
-                const phase =
-                    elapsed * phaseSpeed
-                    - x * spatialX
-                    - y * spatialY;
+                let offsetY = 0;
 
-                const offsetY = isPlaying
-                    ? Math.sin(phase) * cfg.amplitude
-                    : 0;
+                if (isPlaying) {
+                    const phase =
+                        elapsed * phaseSpeed
+                        - x * spatialX
+                        - y * spatialY;
 
-                if (cfg.colorMode === "Original colors") {{
+                    offsetY =
+                        Math.sin(phase) * cfg.amplitude;
+                }
+
+                if (cfg.colorMode === "Original colors") {
                     ctx.fillStyle =
-                        `rgb(${{p.r}},${{p.g}},${{p.b}})`;
-                }} else {{
+                        "rgb(" + p.r + "," + p.g + "," + p.b + ")";
+                } else {
                     const opacity = Math.max(
                         0.08,
-                        Math.min(1, 1 - p.brightness / 255)
+                        Math.min(
+                            1,
+                            1 - p.brightness / 255
+                        )
                     );
 
                     ctx.fillStyle = hexToRgba(
                         cfg.pixelColor,
                         opacity
                     );
-                }}
+                }
 
                 ctx.fillText(
                     char,
                     x * cellWidth,
                     y * cellHeight + offsetY
                 );
-            }}
-        }}
-    }}
+            }
+        }
+    }
 
-    function hexToRgba(hex, alpha) {{
-        const normalized = hex.replace("#", "");
-
-        const r = parseInt(normalized.slice(0, 2), 16);
-        const g = parseInt(normalized.slice(2, 4), 16);
-        const b = parseInt(normalized.slice(4, 6), 16);
-
-        return `rgba(${{r}},${{g}},${{b}},${{alpha}})`;
-    }}
-
-    function animate(timestamp) {{
-        if (!isPlaying) {{
+    function animate(timestamp) {
+        // The loop exits immediately if animation is turned off
+        // or the browser tab is no longer visible.
+        if (!isPlaying || !pageIsVisible) {
             animationFrame = null;
+            lastTimestamp = 0;
+            lastDrawTimestamp = 0;
             return;
-        }}
+        }
 
-        if (!lastTime) {{
-            lastTime = timestamp;
-        }}
+        if (lastTimestamp === 0) {
+            lastTimestamp = timestamp;
+            lastDrawTimestamp = timestamp;
+        }
 
-        const delta = Math.min(timestamp - lastTime, 50);
-        lastTime = timestamp;
-        elapsed += delta;
+        const delta = Math.min(
+            timestamp - lastTimestamp,
+            100
+        );
 
+        lastTimestamp = timestamp;
+
+        // Only draw when the 30 FPS interval has elapsed.
+        if (timestamp - lastDrawTimestamp >= FRAME_INTERVAL) {
+            elapsed += delta;
+            lastDrawTimestamp = timestamp;
+            drawFrame();
+        }
+
+        animationFrame = requestAnimationFrame(animate);
+    }
+
+    function startAnimation() {
+        if (
+            !isPlaying
+            || !pageIsVisible
+            || animationFrame !== null
+        ) {
+            return;
+        }
+
+        lastTimestamp = 0;
+        lastDrawTimestamp = 0;
+
+        animationFrame = requestAnimationFrame(animate);
+    }
+
+    function stopAnimation() {
+        if (animationFrame !== null) {
+            cancelAnimationFrame(animationFrame);
+            animationFrame = null;
+        }
+
+        lastTimestamp = 0;
+        lastDrawTimestamp = 0;
+
+        // Keep the last elapsed time so restarting continues
+        // smoothly rather than resetting the wave.
         drawFrame();
-        animationFrame = requestAnimationFrame(animate);
-    }}
+    }
 
-    function startAnimation() {{
-        if (animationFrame !== null) {{
-            return;
-        }}
+    document.addEventListener(
+        "visibilitychange",
+        function () {
+            pageIsVisible = !document.hidden;
 
-        lastTime = 0;
-        animationFrame = requestAnimationFrame(animate);
-    }}
+            if (!pageIsVisible) {
+                stopAnimation();
+            } else if (isPlaying) {
+                startAnimation();
+            } else {
+                drawFrame();
+            }
+        }
+    );
 
-    if (window.matchMedia(
-        "(prefers-reduced-motion: reduce)"
-    ).matches) {{
-        isPlaying = false;
-    }}
+    // The checkbox state comes from Streamlit on each rerun.
+    // When false, draw once and do not start a frame loop.
+    if (isPlaying) {
+        resizeCanvas();
+        startAnimation();
+    } else {
+        resizeCanvas();
+    }
 
-    resizeCanvas();
-
-    if ("ResizeObserver" in window) {{
-        const observer = new ResizeObserver(() => {{
+    if ("ResizeObserver" in window) {
+        const observer = new ResizeObserver(function () {
             resizeCanvas();
-        }});
+        });
 
-        observer.observe(viewport);
-    }} else {{
+        observer.observe(container);
+    } else {
         window.addEventListener("resize", resizeCanvas);
-    }}
-}})();
+    }
+})();
 </script>
 </body>
 </html>
 """
 
-                st.caption(
-                    f"{image.width} × {image.height} px  ·  "
-                    f"{grid_width} columns × {grid_height} rows"
-                )
+            # Replace the placeholder instead of using an f-string,
+            # so JavaScript braces do not need escaping.
+            canvas_html = canvas_html.replace(
+                "__CONFIG_JSON__",
+                config_json,
+            )
 
-                # Keep the iframe tall enough for portrait images.
-                preview_height = min(
-                    1200,
-                    max(220, round(1000 / image_ratio) + 50)
-                )
+            preview_height = min(
+                1200,
+                max(
+                    220,
+                    round(1000 / image_ratio) + 50,
+                ),
+            )
 
-                st.components.v1.html(
-                    canvas_html,
-                    height=preview_height,
-                    scrolling=False
-                )
+            components.html(
+                canvas_html,
+                height=preview_height,
+                scrolling=False,
+            )
 
-                st.download_button(
-                    label="Download character art (.txt)",
-                    data="\n".join(
-                        "".join(
-                            content[
-                                (y * grid_width + x) % len(content)
-                            ]
-                            for x in range(grid_width)
-                        )
-                        for y in range(grid_height)
-                    ),
-                    file_name="flowing_pixels.txt",
-                    mime="text/plain"
-                )
+            st.download_button(
+                label="Download TXT",
+                data=text_art,
+                file_name="flowing_pixels.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+
+            st.caption(
+                f"Grid: {grid_width} × {grid_height} characters"
+            )
 
         except Exception as error:
             st.error(
-                "Something went wrong while processing the image."
+                "Unable to process this image. "
+                "Please try another image file."
             )
-            st.caption(f"Details: {error}")
+            st.exception(error)
