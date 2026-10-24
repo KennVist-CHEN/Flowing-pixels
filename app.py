@@ -44,6 +44,24 @@ color_mode = st.selectbox(
     ["Monochrome", "Original colors"]
 )
 
+# Color controls only appear in Monochrome mode.
+if color_mode == "Monochrome":
+    st.subheader("Monochrome colors")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        pixel_color = st.color_picker(
+            "Pixel color",
+            value="#000000"
+        )
+
+    with col2:
+        background_color = st.color_picker(
+            "Background color",
+            value="#FFFFFF"
+        )
+
 if uploaded_file is not None:
     try:
         image = Image.open(uploaded_file).convert("RGB")
@@ -57,13 +75,11 @@ if uploaded_file is not None:
             )
             st.stop()
 
-        # Density controls the number of character columns only.
-        # Preview width is calculated separately and stays constant.
+        # Preserve the source image proportions.
         image_ratio = image.width / image.height
         grid_width = density
 
-        # Characters are taller than they are wide.
-        # This factor compensates for the shape of monospace cells.
+        # Compensate for the shape of monospace character cells.
         grid_height = max(
             1,
             round(grid_width / image_ratio * 0.5)
@@ -93,6 +109,7 @@ if uploaded_file is not None:
                     + 0.114 * b
                 )
 
+                # Repeat the user's custom characters.
                 symbol_index = (
                     y * grid_width + x
                 ) % len(symbols)
@@ -103,16 +120,17 @@ if uploaded_file is not None:
                 text_row.append(char)
 
                 if color_mode == "Original colors":
-                    style = (
-                        f"color: rgb({r},{g},{b});"
-                    )
+                    # Keep original RGB coloring unchanged.
+                    style = f"color: rgb({r},{g},{b});"
                 else:
-                    # Darker image areas have darker characters.
+                    # Use the chosen pixel color.
+                    # Image brightness controls character opacity.
                     opacity = 1.0 - brightness / 255.0
                     opacity = max(0.08, min(1.0, opacity))
 
                     style = (
-                        f"color: rgba(0,0,0,{opacity:.2f});"
+                        f"color: {pixel_color};"
+                        f"opacity: {opacity:.2f};"
                     )
 
                 html_row.append(
@@ -123,16 +141,18 @@ if uploaded_file is not None:
             text_rows.append("".join(text_row))
             html_rows.append("".join(html_row))
 
-        # Fixed preview width, independent of density.
+        # Preview background.
+        if color_mode == "Monochrome":
+            preview_background = background_color
+        else:
+            preview_background = "#FFFFFF"
+
+        # Keep preview width independent of density.
         preview_width = 1000
 
-        # Each character occupies a proportional share of the
-        # preview width. More characters therefore mean smaller cells,
-        # not a smaller overall image.
         font_size = preview_width / grid_width * 1.55
         line_height = font_size * 1.15
 
-        # Let the preview scroll vertically for tall images.
         preview_height = min(
             900,
             max(
@@ -143,24 +163,33 @@ if uploaded_file is not None:
 
         formatted_rows = "<br>".join(html_rows)
 
+        # Center the character art horizontally in the preview.
         preview_html = f"""
         <div style="
-            background: #ffffff;
+            background: {preview_background};
             width: 100%;
+            height: 100%;
             box-sizing: border-box;
             padding: 15px;
-            overflow: auto;
             border-radius: 8px;
+            overflow: auto;
         ">
             <div style="
-                font-family: 'Courier New', monospace;
-                font-size: {font_size}px;
-                line-height: {line_height}px;
-                font-weight: bold;
-                letter-spacing: 0;
-                white-space: pre;
-                color: #000000;
-            ">{formatted_rows}</div>
+                width: fit-content;
+                min-width: 0;
+                margin-left: auto;
+                margin-right: auto;
+            ">
+                <div style="
+                    font-family: 'Courier New', monospace;
+                    font-size: {font_size}px;
+                    line-height: {line_height}px;
+                    font-weight: bold;
+                    letter-spacing: 0;
+                    white-space: pre;
+                    color: #000000;
+                ">{formatted_rows}</div>
+            </div>
         </div>
         """
 
@@ -176,6 +205,7 @@ if uploaded_file is not None:
             scrolling=True
         )
 
+        # Download plain-text character art.
         st.download_button(
             label="Download character art (.txt)",
             data="\n".join(text_rows),
