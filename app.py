@@ -1,6 +1,4 @@
 
-import base64
-import io
 import json
 
 import streamlit as st
@@ -142,7 +140,17 @@ with control_col:
 
     st.subheader("Animation")
 
-    # Explicitly default to False.
+    animation_mode = st.selectbox(
+        "Motion style",
+        ["Wave", "Pixel Build", "Outline → Fill"],
+        help=(
+            "Wave: continuous vertical movement. "
+            "Pixel Build: reveal characters from the center outward. "
+            "Outline → Fill: reveal image edges first, "
+            "then fill in the remaining characters."
+        ),
+    )
+
     play_animation = st.checkbox(
         "Play animation",
         value=False,
@@ -158,23 +166,27 @@ with control_col:
         disabled=not play_animation,
     )
 
-    animation_amplitude = st.slider(
-        "Wave amplitude",
-        min_value=0,
-        max_value=16,
-        value=5,
-        step=1,
-        disabled=not play_animation,
-    )
+    if animation_mode == "Wave":
+        st.caption("Characters move in continuous waves.")
+    elif animation_mode == "Pixel Build":
+        st.caption(
+            "Characters appear from the center outward, "
+            "then the process repeats."
+        )
+    else:
+        st.caption(
+            "Image edges appear first, followed by the "
+            "remaining characters."
+        )
 
     st.caption(
         "Animation is limited to 30 FPS. "
-        "It pauses when this browser tab is hidden."
+        "Build animations draw new characters incrementally."
     )
 
 
 # --------------------------------------------------
-# Image processing and preview
+# Preview
 # --------------------------------------------------
 
 with preview_col:
@@ -203,27 +215,21 @@ with preview_col:
             image_width, image_height = image.size
             image_ratio = image_width / image_height
 
-            # Number of character columns.
+            # Preserve the image aspect ratio.
             grid_width = density
-
-            # Keep the character grid proportional to the image.
-            # Each character cell is approximately 2:3 (width:height).
             grid_height = max(
                 1,
                 round(grid_width / image_ratio * 2 / 3),
             )
 
-            # Resize the source image to match the character grid.
             small_image = image.resize(
                 (grid_width, grid_height),
                 Image.Resampling.LANCZOS,
             )
 
-            rgb_pixels = list(small_image.getdata())
-
             pixel_data = []
 
-            for red, green, blue in rgb_pixels:
+            for red, green, blue in small_image.getdata():
                 brightness = (
                     0.299 * red
                     + 0.587 * green
@@ -239,9 +245,8 @@ with preview_col:
                     }
                 )
 
-            # Text export: one character per grid cell.
+            # Downloadable text artwork.
             characters = list(pixel_content)
-
             text_rows = []
 
             for y in range(grid_height):
@@ -249,14 +254,14 @@ with preview_col:
 
                 for x in range(grid_width):
                     index = y * grid_width + x
-                    char = characters[index % len(characters)]
-                    row_chars.append(char)
+                    row_chars.append(
+                        characters[index % len(characters)]
+                    )
 
                 text_rows.append("".join(row_chars))
 
             text_art = "\n".join(text_rows)
 
-            # Pass data safely into the browser-side Canvas.
             config = {
                 "cols": grid_width,
                 "rows": grid_height,
@@ -266,8 +271,8 @@ with preview_col:
                 "pixelColor": pixel_color,
                 "backgroundColor": background_color,
                 "playing": play_animation,
+                "mode": animation_mode,
                 "speed": animation_speed,
-                "amplitude": animation_amplitude,
                 "imageRatio": image_ratio,
             }
 
@@ -321,6 +326,7 @@ with preview_col:
 
     const canvas = document.getElementById("artCanvas");
     const container = document.getElementById("canvas-container");
+
     const ctx = canvas.getContext("2d", {
         alpha: false
     });
@@ -328,13 +334,14 @@ with preview_col:
     const cols = cfg.cols;
     const rows = cfg.rows;
     const pixels = cfg.pixels;
+    const totalCells = cols * rows;
 
-    // Fixed preview width keeps the artwork display size stable
-    // while density changes the number of character cells.
     const MAX_WIDTH = 1000;
-
-    // 30 FPS = approximately one frame every 33.33 ms.
     const FRAME_INTERVAL = 1000 / 30;
+
+    // At speed 1, build approximately 1,200 cells per second.
+    const BUILD_CELLS_PER_SECOND = 1200;
+    const COMPLETE_PAUSE_MS = 1000;
 
     let cellWidth = 1;
     let cellHeight = 1;
@@ -347,6 +354,13 @@ with preview_col:
 
     let isPlaying = cfg.playing;
     let pageIsVisible = !document.hidden;
+
+    // Incremental build state.
+    let buildOrder = [];
+    let buildCursor = 0;
+    let buildElapsed = 0;
+    let completedAt = null;
+    let buildInitialized = false;
 
     const fontFamily =
         "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
@@ -361,7 +375,15 @@ with preview_col:
         return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
     }
 
-    function resizeCanvas() {
+    function clearCanvas() {
+        const cssWidth = parseFloat(canvas.style.width) || 1;
+        const cssHeight = parseFloat(canvas.style.height) || 1;
+
+        ctx.fillStyle = cfg.backgroundColor;
+        ctx.fillRect(0, 0, cssWidth, cssHeight);
+    }
+
+    function setupCanvas() {
         const availableWidth = Math.max(
             1,
             container.clientWidth
@@ -373,11 +395,7 @@ with preview_col:
         );
 
         const cssHeight = cssWidth / cfg.imageRatio;
-
-        const dpr = Math.min(
-            window.devicePixelRatio || 1,
-            2
-        );
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
         canvas.style.width = cssWidth + "px";
         canvas.style.height = cssHeight + "px";
@@ -385,41 +403,199 @@ with preview_col:
         canvas.width = Math.round(cssWidth * dpr);
         canvas.height = Math.round(cssHeight * dpr);
 
-        // Draw in CSS-pixel coordinates for consistent sizing.
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         cellWidth = cssWidth / cols;
         cellHeight = cssHeight / rows;
-
         fontSize = cellWidth * 1.25;
-
-        drawFrame();
-
-        // Resizing should not start animation by itself.
-        if (isPlaying && pageIsVisible) {
-            startAnimation();
-        }
-    }
-
-    function drawFrame() {
-        const cssWidth = parseFloat(canvas.style.width) || 1;
-        const cssHeight = parseFloat(canvas.style.height) || 1;
-
-        ctx.fillStyle = cfg.backgroundColor;
-        ctx.fillRect(0, 0, cssWidth, cssHeight);
 
         ctx.font = "bold " + fontSize + "px " + fontFamily;
         ctx.textBaseline = "top";
 
-        const chars = Array.from(cfg.content);
+        clearCanvas();
+    }
 
-        if (chars.length === 0 || pixels.length === 0) {
-            return;
+    // Draw exactly one character cell.
+    // Build animations use this without redrawing previous cells.
+    function drawCharacter(index) {
+        const p = pixels[index];
+        const chars = Array.from(cfg.content);
+        const char = chars[index % chars.length];
+
+        const x = index % cols;
+        const y = Math.floor(index / cols);
+
+        if (cfg.colorMode === "Original colors") {
+            ctx.fillStyle =
+                "rgb(" + p.r + "," + p.g + "," + p.b + ")";
+        } else {
+            const opacity = Math.max(
+                0.08,
+                Math.min(
+                    1,
+                    1 - p.brightness / 255
+                )
+            );
+
+            ctx.fillStyle = hexToRgba(
+                cfg.pixelColor,
+                opacity
+            );
         }
+
+        ctx.fillText(
+            char,
+            x * cellWidth,
+            y * cellHeight
+        );
+    }
+
+    // Build a center-out order using squared distance.
+    // Avoids repeated square roots when sorting.
+    function getCenterOutOrder(indices) {
+        const centerX = (cols - 1) / 2;
+        const centerY = (rows - 1) / 2;
+
+        return indices.sort(function (a, b) {
+            const ax = a % cols;
+            const ay = Math.floor(a / cols);
+            const bx = b % cols;
+            const by = Math.floor(b / cols);
+
+            const distanceA =
+                Math.pow(ax - centerX, 2)
+                + Math.pow(ay - centerY, 2);
+
+            const distanceB =
+                Math.pow(bx - centerX, 2)
+                + Math.pow(by - centerY, 2);
+
+            return distanceA - distanceB;
+        });
+    }
+
+    // Estimate image edges from neighboring brightness values.
+    // Strong local brightness changes are likely to be outlines.
+    function calculateEdgeScores() {
+        const scores = new Array(totalCells).fill(0);
+
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                const index = y * cols + x;
+                const current = pixels[index].brightness;
+
+                const rightIndex = Math.min(
+                    x + 1,
+                    cols - 1
+                ) + y * cols;
+
+                const downIndex =
+                    Math.min(y + 1, rows - 1) * cols + x;
+
+                const rightBrightness =
+                    pixels[rightIndex].brightness;
+
+                const downBrightness =
+                    pixels[downIndex].brightness;
+
+                const horizontalDifference =
+                    Math.abs(current - rightBrightness);
+
+                const verticalDifference =
+                    Math.abs(current - downBrightness);
+
+                scores[index] =
+                    horizontalDifference + verticalDifference;
+            }
+        }
+
+        return scores;
+    }
+
+    function createBuildOrder() {
+        const allIndices = Array.from(
+            { length: totalCells },
+            function (_, index) {
+                return index;
+            }
+        );
+
+        if (cfg.mode === "Pixel Build") {
+            // Simple deterministic center-out build.
+            buildOrder = getCenterOutOrder(allIndices);
+        } else {
+            // Outline → Fill:
+            // 1. Select the strongest local brightness changes.
+            // 2. Draw these edge characters first.
+            // 3. Fill all remaining cells center outward.
+            const edgeScores = calculateEdgeScores();
+
+            const ranked = allIndices.slice().sort(
+                function (a, b) {
+                    return edgeScores[b] - edgeScores[a];
+                }
+            );
+
+            // Use approximately the strongest 18% of edge scores
+            // to create a visible outline phase.
+            const outlineCount = Math.max(
+                1,
+                Math.floor(totalCells * 0.18)
+            );
+
+            const outlineIndices = ranked
+                .slice(0, outlineCount)
+                .sort(function (a, b) {
+                    return a - b;
+                });
+
+            const outlineSet = new Set(outlineIndices);
+
+            const remainingIndices = allIndices.filter(
+                function (index) {
+                    return !outlineSet.has(index);
+                }
+            );
+
+            const fillOrder = getCenterOutOrder(
+                remainingIndices
+            );
+
+            buildOrder = outlineIndices.concat(fillOrder);
+        }
+
+        buildCursor = 0;
+        buildElapsed = 0;
+        completedAt = null;
+        buildInitialized = true;
+    }
+
+    function drawCompleteImage() {
+        clearCanvas();
+
+        for (let i = 0; i < totalCells; i++) {
+            drawCharacter(i);
+        }
+    }
+
+    function resetBuild() {
+        clearCanvas();
+        buildCursor = 0;
+        buildElapsed = 0;
+        completedAt = null;
+        createBuildOrder();
+    }
+
+    // Wave is the only continuously moving full-image animation.
+    function drawWave() {
+        clearCanvas();
 
         const phaseSpeed = cfg.speed * 0.0018;
         const spatialX = 0.045;
         const spatialY = 0.025;
+        const amplitude = 5;
+
+        const chars = Array.from(cfg.content);
 
         for (let y = 0; y < rows; y++) {
             for (let x = 0; x < cols; x++) {
@@ -427,17 +603,13 @@ with preview_col:
                 const p = pixels[index];
                 const char = chars[index % chars.length];
 
-                let offsetY = 0;
+                const phase =
+                    elapsed * phaseSpeed
+                    - x * spatialX
+                    - y * spatialY;
 
-                if (isPlaying) {
-                    const phase =
-                        elapsed * phaseSpeed
-                        - x * spatialX
-                        - y * spatialY;
-
-                    offsetY =
-                        Math.sin(phase) * cfg.amplitude;
-                }
+                const offsetY =
+                    Math.sin(phase) * amplitude;
 
                 if (cfg.colorMode === "Original colors") {
                     ctx.fillStyle =
@@ -466,9 +638,53 @@ with preview_col:
         }
     }
 
+    function updateBuild(delta) {
+        if (completedAt !== null) {
+            if (performance.now() - completedAt >= COMPLETE_PAUSE_MS) {
+                resetBuild();
+            }
+
+            return;
+        }
+
+        buildElapsed += delta;
+
+        const targetCount = Math.min(
+            totalCells,
+            Math.floor(
+                buildElapsed / 1000
+                * BUILD_CELLS_PER_SECOND
+                * cfg.speed
+            )
+        );
+
+        // Draw only newly revealed characters.
+        // Already visible cells remain on the canvas.
+        const end = Math.min(
+            targetCount,
+            totalCells
+        );
+
+        while (buildCursor < end) {
+            drawCharacter(buildOrder[buildCursor]);
+            buildCursor++;
+        }
+
+        if (buildCursor >= totalCells) {
+            completedAt = performance.now();
+        }
+    }
+
+    function drawFrame(delta) {
+        if (cfg.mode === "Wave") {
+            elapsed += delta;
+            drawWave();
+        } else {
+            updateBuild(delta);
+        }
+    }
+
     function animate(timestamp) {
-        // The loop exits immediately if animation is turned off
-        // or the browser tab is no longer visible.
         if (!isPlaying || !pageIsVisible) {
             animationFrame = null;
             lastTimestamp = 0;
@@ -488,11 +704,9 @@ with preview_col:
 
         lastTimestamp = timestamp;
 
-        // Only draw when the 30 FPS interval has elapsed.
         if (timestamp - lastDrawTimestamp >= FRAME_INTERVAL) {
-            elapsed += delta;
             lastDrawTimestamp = timestamp;
-            drawFrame();
+            drawFrame(delta);
         }
 
         animationFrame = requestAnimationFrame(animate);
@@ -522,9 +736,11 @@ with preview_col:
         lastTimestamp = 0;
         lastDrawTimestamp = 0;
 
-        // Keep the last elapsed time so restarting continues
-        // smoothly rather than resetting the wave.
-        drawFrame();
+        if (cfg.mode === "Wave") {
+            drawWave();
+        } else {
+            drawCompleteImage();
+        }
     }
 
     document.addEventListener(
@@ -537,28 +753,58 @@ with preview_col:
             } else if (isPlaying) {
                 startAnimation();
             } else {
-                drawFrame();
+                drawCompleteImage();
             }
         }
     );
 
-    // The checkbox state comes from Streamlit on each rerun.
-    // When false, draw once and do not start a frame loop.
+    // Initial state.
+    setupCanvas();
+
+    if (cfg.mode !== "Wave") {
+        createBuildOrder();
+    }
+
     if (isPlaying) {
-        resizeCanvas();
+        if (cfg.mode === "Wave") {
+            drawWave();
+        } else {
+            resetBuild();
+        }
+
         startAnimation();
     } else {
-        resizeCanvas();
+        drawCompleteImage();
     }
 
     if ("ResizeObserver" in window) {
         const observer = new ResizeObserver(function () {
-            resizeCanvas();
+            setupCanvas();
+
+            if (isPlaying && cfg.mode !== "Wave") {
+                // Restart build after resizing so its positions
+                // remain consistent with the new canvas size.
+                resetBuild();
+            } else if (isPlaying) {
+                drawWave();
+            } else {
+                drawCompleteImage();
+            }
         });
 
         observer.observe(container);
     } else {
-        window.addEventListener("resize", resizeCanvas);
+        window.addEventListener("resize", function () {
+            setupCanvas();
+
+            if (isPlaying && cfg.mode !== "Wave") {
+                resetBuild();
+            } else if (isPlaying) {
+                drawWave();
+            } else {
+                drawCompleteImage();
+            }
+        });
     }
 })();
 </script>
@@ -566,8 +812,6 @@ with preview_col:
 </html>
 """
 
-            # Replace the placeholder instead of using an f-string,
-            # so JavaScript braces do not need escaping.
             canvas_html = canvas_html.replace(
                 "__CONFIG_JSON__",
                 config_json,
@@ -605,3 +849,4 @@ with preview_col:
                 "Please try another image file."
             )
             st.exception(error)
+
