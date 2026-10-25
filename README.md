@@ -8,6 +8,8 @@ The idea behind Flowing Pixels is to explore how an ordinary image can be transf
 
 The project focuses on experimentation and immediate visual feedback. Users can adjust the visual parameters and see how each change affects the result. Animation adds another dimension to the experience by turning the image-generation process into part of the artwork.
 
+![alt text](af3f12a9beaca08d1bfd737e1bac74ed.png)
+
 ## 2. Intended Users
 
 Flowing Pixels is designed for:
