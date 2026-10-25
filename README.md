@@ -7,8 +7,7 @@
 The idea behind Flowing Pixels is to explore how an ordinary image can be transformed into a different visual form through simple characters. Instead of displaying an image as a collection of pixels, the application represents its visual information using repeated text characters.
 
 The project focuses on experimentation and immediate visual feedback. Users can adjust the visual parameters and see how each change affects the result. Animation adds another dimension to the experience by turning the image-generation process into part of the artwork.
-
-![alt text](af3f12a9beaca08d1bfd737e1bac74ed.png)
+![alt text](pictures/1.png)
 
 ## 2. Intended Users
 
@@ -28,19 +27,24 @@ Users can enter their own characters, words, phrases, or emoticons. The selected
 
 ### Adjust Image Density
 A density slider controls the number of character cells used to represent the image. Lower density produces a coarser result, while higher density captures more visual detail.
+![alt text](pictures/2.png)
 
 ### Switch Color Modes
 Users can choose between two color modes:
 
 - **Monochrome:** Customize the character color and background color.
 - **Original Colors:** Preserve the color information of the uploaded image.
+![alt text](pictures/3.png)
 
 ### Explore Animation Styles
 When animation is enabled, users can choose between three motion styles:
 
 - **Wave:** Characters move in a continuous wave pattern.
+![alt text](pictures/4.png)
 - **Pixel Build:** Characters gradually appear outward from the center of the image.
+![alt text](pictures/5.png)
 - **Outline → Fill:** The application reveals high-contrast edge details first, then fills in the remaining characters to form the complete image.
+![alt text](pictures/6.png)
 
 ### Export the Text Art
 Users can download a TXT file containing the repeated character pattern for further experimentation or use in other text-based projects.
