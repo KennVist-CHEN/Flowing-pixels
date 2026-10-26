@@ -34,6 +34,8 @@ I also made animation optional and disabled it by default, so users can view the
 
 I invited my roommate to test Flowing Pixels at different stages of development. His feedback helped me identify several issues that I had overlooked when developing and testing the application on my own computer.
 
+![alt text](pictures/test.jpg)
+
 He found the initial page layout inconvenient. The controls and image preview were arranged in a way that required him to scroll down the page to see the generated image after adjusting the parameters. This interrupted the process of experimentation because he could not easily compare the effects of different settings. In response, I redesigned the layout into a two-column structure, placing the controls on the left and the image preview on the right.
 
 He also pointed out that the Wave, Ripple, and Flow animations looked too similar. Although I had implemented several animation styles, the differences between them were not obvious enough. I reconsidered the purpose of each animation and removed Ripple and Flow. I replaced them with Pixel Build, which reveals characters outward from the center, and Outline → Fill, which reveals prominent image edges before filling in the remaining characters.
